@@ -22,7 +22,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    dockerImage = docker.build("${DOCKER_FULL_IMAGE}", "--no-cache --pull .")
+                    sh "docker build --no-cache --pull -t ${DOCKER_FULL_IMAGE} ."
                 }
             }
         }
@@ -50,9 +50,13 @@ pipeline {
             steps {
                 script {
                     sh "docker pull ${DOCKER_FULL_IMAGE}"
-                    sh "docker stop $CONTAINER_NAME || true"
-                    sh "docker rm $CONTAINER_NAME || true"
-                    sh "docker run -d --name $CONTAINER_NAME -p $PORT:$PORT $DOCKER_FULL_IMAGE || exit 1"
+                    sh """
+                    if [ "\$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
+                        docker stop $CONTAINER_NAME
+                    fi
+                    docker rm -f $CONTAINER_NAME || true
+                    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p $PORT:$PORT $DOCKER_FULL_IMAGE || exit 1
+                    """
                 }
             }
         }
@@ -60,6 +64,7 @@ pipeline {
         stage('Cleanup') {
             steps {
                 sh "docker rmi ${DOCKER_FULL_IMAGE} || true"
+                sh "docker system prune -af || true"
             }
         }
     }
@@ -72,7 +77,13 @@ pipeline {
             echo 'Deployment gagal! ❌'
         }
         always {
-            sh "docker logout"
+            script {
+                sh """
+                if docker info | grep -q 'Username:'; then
+                    docker logout
+                fi
+                """
+            }
         }
     }
 }
